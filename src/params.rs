@@ -6,19 +6,19 @@ use std::any::TypeId;
 
 use crate::error::{Result, Error};
 
-pub enum ParamsRange<T> {
+pub enum ParamSet<T> {
     Range(Range<T>),
     Items(Vec<T>),
 }
 
-pub enum Param {
-    Usize(ParamsRange<usize>),
-    Float(ParamsRange<f32>),
+pub enum ParamType {
+    Usize(ParamSet<usize>),
+    Float(ParamSet<f32>),
     Str(Vec<String>),
 }
 
-impl Param {
-    pub fn from_range<T: Any>(range: Range<T>) -> Result<Param> {
+impl ParamType {
+    pub fn from_range<T: Any>(range: Range<T>) -> Result<ParamType> {
         let type_id = TypeId::of::<T>();
 
         if type_id == TypeId::of::<usize>() {
@@ -28,7 +28,7 @@ impl Param {
                 Any::downcast_ref(&b).unwrap(),
             );
 
-            return Ok(Param::Usize(ParamsRange::Range(*a..*b)));
+            return Ok(ParamType::Usize(ParamSet::Range(*a..*b)));
         } else if type_id == TypeId::of::<f32>() {
             let (a, b) = (range.start, range.end);
             let (a, b): (&f32, &f32) = (
@@ -36,7 +36,7 @@ impl Param {
                 Any::downcast_ref(&b).unwrap(),
             );
 
-            return Ok(Param::Float(ParamsRange::Range(*a..*b)));
+            return Ok(ParamType::Float(ParamSet::Range(*a..*b)));
         } else if type_id == TypeId::of::<String>() {
             return Err(Error::StringRange);
         } else {
@@ -44,7 +44,7 @@ impl Param {
         }
     }
 
-    pub fn from_items<'a, T: Any>(items: &'a [T]) -> Result<Param> {
+    pub fn from_items<'a, T: Any>(items: &'a [T]) -> Result<ParamType> {
         let type_id = TypeId::of::<T>();
 
         if type_id == TypeId::of::<usize>() {
@@ -52,19 +52,19 @@ impl Param {
                 .map(|x| *Any::downcast_ref(x).unwrap())
                 .collect();
 
-            return Ok(Param::Usize(ParamsRange::Items(items)));
+            return Ok(ParamType::Usize(ParamSet::Items(items)));
         } else if type_id == TypeId::of::<f32>() {
             let items = items.into_iter()
                 .map(|x| *Any::downcast_ref(x).unwrap())
                 .collect();
 
-            return Ok(Param::Float(ParamsRange::Items(items)));
+            return Ok(ParamType::Float(ParamSet::Items(items)));
         } else if type_id == TypeId::of::<String>() {
             let items = items.into_iter()
                 .map(|x| Any::downcast_ref::<String>(x).unwrap().to_string())
                 .collect();
 
-            return Ok(Param::Str(items));
+            return Ok(ParamType::Str(items));
         } else {
             return Err(Error::InvalidType(type_name::<T>().into()));
         }
@@ -72,7 +72,7 @@ impl Param {
 }
 
 pub struct ParamBuilder<'a> {
-    map: HashMap<&'a str, Param>,
+    map: HashMap<&'a str, ParamType>,
 }
 
 impl<'a> ParamBuilder<'a> {
@@ -87,7 +87,7 @@ impl<'a> ParamBuilder<'a> {
             return Err(Error::ArgumentAlreadyExists(name.to_string()));
         }
 
-        Param::from_range(range)
+        ParamType::from_range(range)
             .map(|param| {
                 self.map.insert(name, param);
 
@@ -102,7 +102,7 @@ impl<'a> ParamBuilder<'a> {
             return Err(Error::ArgumentAlreadyExists(name.to_string()));
         }
 
-        Param::from_items(items)
+        ParamType::from_items(items)
             .map(|param| {
                 self.map.insert(name, param);
 
@@ -111,9 +111,36 @@ impl<'a> ParamBuilder<'a> {
     }
 }
 
+pub enum Param {
+    Float(f32),
+    Usize(usize),
+    Str(String),
+}
+
+impl Param {
+    pub fn from_str<'a>(x: &'a str) -> Result<(&'a str, Self)> {
+        let parts = x.splitn(3, "§").collect::<Vec<_>>();
+        if parts.len() != 3 {
+            return Err(Error::InvalidParamTypeStr(x.to_string()));
+        } 
+
+        let (kind, name, value) = (parts[0], parts[1], parts[2]);
+
+        if kind == "usize" {
+            return Ok((name, Param::Usize(value.parse()?)));
+        } else if kind == "float" {
+            return Ok((name, Param::Float(value.parse()?)));
+        } else if kind == "str" {
+            return Ok((name, Param::Str(value.to_string())));
+        } else {
+            return Err(Error::InvalidParamTypeStr(x.to_string()));
+        }
+    }
+}
+
 pub enum Params<'a> {
     Init,
-    Args(HashMap<&'a str, Box<Any>>),
+    Args(HashMap<&'a str, Param>),
 }
 
 impl<'a> Params<'a> {
@@ -121,7 +148,20 @@ impl<'a> Params<'a> {
         Params::Init
     }
 
-    pub fn from_vec(params: Vec<String>) -> Self {
-        panic!("");
+    pub fn from_vec(params: &'a str) -> Result<Self> {
+        if params == "init" {
+            return Ok(Params::Init);
+        } 
+
+        params.split(" ")
+            .map(|x| {
+                Param::from_str(x)
+            })
+            .collect::<Result<HashMap<&'a str, Param>>>()
+            .map(|x| Params::Args(x))
+    }
+
+    pub fn is_init_mode(&self) -> bool {
+        matches!(self, Params::Init)
     }
 }

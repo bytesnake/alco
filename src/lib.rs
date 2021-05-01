@@ -217,16 +217,9 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params<'a>), ParamBuilder<'a>
         // In this branch, we're running under cachegrind, so execute the benchmark as quic  kly as
         // possible and exit
         let index: usize = args_iter.next().unwrap().parse().unwrap();
-        let args: Vec<String> = args_iter.collect();
+        let args: String = args_iter.collect::<Vec<_>>().join(" ");
 
-        // with no dimension argument, just measure the set-up time
-        if args.len() == 0 {
-            (benches[index].1)(Params::init_mode());
-
-            return;
-        }
-
-        let params = Params::from_vec(args);
+        let params = Params::from_vec(&args).unwrap();
         (benches[index].1)(params);
 
         return;
