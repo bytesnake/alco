@@ -11,6 +11,15 @@ pub enum ParamSet<T> {
     Items(Vec<T>),
 }
 
+impl<T: Clone> ParamSet<T> {
+    pub fn lower_bound(&self) -> T {
+        match self {
+            ParamSet::Range(range) => range.start.clone(),
+            ParamSet::Items(items) => items[0].clone(),
+        }
+    }
+}
+
 pub enum ParamType {
     Usize(ParamSet<usize>),
     Float(ParamSet<f32>),
@@ -69,6 +78,14 @@ impl ParamType {
             return Err(Error::InvalidType(type_name::<T>().into()));
         }
     }
+
+    pub fn lower_bound(&self) -> Param {
+        match self {
+            ParamType::Usize(u) => Param::Usize(u.lower_bound()),
+            ParamType::Float(f) => Param::Float(f.lower_bound()),
+            ParamType::Str(s) => Param::Str(s.first().unwrap().clone()),
+        }
+    }
 }
 
 pub struct ParamBuilder<'a> {
@@ -109,6 +126,14 @@ impl<'a> ParamBuilder<'a> {
                 ()
             })
     }
+
+    pub fn lower_bound(&self) -> Params {
+        let res = self.map.iter().map(|(a, b)| {
+            (a.to_string(), b.lower_bound())
+        }).collect();
+
+        Params::Args(res)
+    }
 }
 
 pub enum Param {
@@ -118,13 +143,13 @@ pub enum Param {
 }
 
 impl Param {
-    pub fn from_str<'a>(x: &'a str) -> Result<(&'a str, Self)> {
+    pub fn from_str(x: &str) -> Result<(String, Self)> {
         let parts = x.splitn(3, "§").collect::<Vec<_>>();
         if parts.len() != 3 {
             return Err(Error::InvalidParamTypeStr(x.to_string()));
         } 
 
-        let (kind, name, value) = (parts[0], parts[1], parts[2]);
+        let (name, kind, value) = (parts[0].to_string(), parts[1], parts[2]);
 
         if kind == "usize" {
             return Ok((name, Param::Usize(value.parse()?)));
@@ -136,19 +161,27 @@ impl Param {
             return Err(Error::InvalidParamTypeStr(x.to_string()));
         }
     }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Param::Float(f) => format!("float§{}", f),
+            Param::Usize(u) => format!("usize§{}", u),
+            Param::Str(s) => format!("str§{}", s),
+        }
+    }
 }
 
-pub enum Params<'a> {
+pub enum Params {
     Init,
-    Args(HashMap<&'a str, Param>),
+    Args(HashMap<String, Param>),
 }
 
-impl<'a> Params<'a> {
+impl Params {
     pub fn init_mode() -> Self {
         Params::Init
     }
 
-    pub fn from_vec(params: &'a str) -> Result<Self> {
+    pub fn from_string(params: String) -> Result<Self> {
         if params == "init" {
             return Ok(Params::Init);
         } 
@@ -157,11 +190,35 @@ impl<'a> Params<'a> {
             .map(|x| {
                 Param::from_str(x)
             })
-            .collect::<Result<HashMap<&'a str, Param>>>()
+            .collect::<Result<HashMap<String, Param>>>()
             .map(|x| Params::Args(x))
     }
 
     pub fn is_init_mode(&self) -> bool {
         matches!(self, Params::Init)
+    }
+
+    pub fn to_string(self) -> Vec<String> {
+        match self {
+            Params::Init => vec!["init".into()],
+            Params::Args(args) => {
+                args.into_iter().map(|(name, val)| {
+                    format!("{}§{}", name, val.to_string())
+                })
+                .collect::<Vec<_>>()
+            }
+        }
+    }
+
+    pub fn get_usize(&self, name: &str) -> Option<usize> {
+        match self {
+            Params::Init => Some(0),
+            Params::Args(args) => {
+                match args.get(name) {
+                    Some(Param::Usize(x)) => Some(*x),
+                    _ => None
+                }
+            }
+        }
     }
 }

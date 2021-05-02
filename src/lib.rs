@@ -61,11 +61,11 @@ fn basic_valgrind() -> Command {
     Command::new("valgrind")
 }
 
-fn run_bench(
+fn run_bench<'a>(
     arch: &str,
     executable: &str,
     i: usize,
-    params: &[usize],
+    params: Params,
     name: &str,
     allow_aslr: bool,
 ) -> (CachegrindStats, Option<CachegrindStats>) {
@@ -97,8 +97,8 @@ fn run_bench(
         .arg("--alco-run")
         .arg(i.to_string());
 
-    for p in params {
-        status = status.arg(p.to_string());
+    for arg in params.to_string() {
+        status = status.arg(arg);
     }
 
     let status = status
@@ -209,7 +209,7 @@ struct CachegrindSummary {
 
 /// Custom-test-framework runner. Should not be called directly.
 #[doc(hidden)]
-pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params<'a>), ParamBuilder<'a>)]) {
+pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params), ParamBuilder<'a>)]) {
     let mut args_iter = args();
     let executable = args_iter.next().unwrap();
 
@@ -219,7 +219,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params<'a>), ParamBuilder<'a>
         let index: usize = args_iter.next().unwrap().parse().unwrap();
         let args: String = args_iter.collect::<Vec<_>>().join(" ");
 
-        let params = Params::from_vec(&args).unwrap();
+        let params = Params::from_string(args).unwrap();
         (benches[index].1)(params);
 
         return;
@@ -234,17 +234,19 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params<'a>), ParamBuilder<'a>
 
     let allow_aslr = std::env::var_os("IAI_ALLOW_ASLR").is_some();
 
-    for (i, (name, _func, _params)) in benches.iter().enumerate() {
+    for (i, (name, _func, param_builder)) in benches.iter().enumerate() {
         println!("{}", name);
 
         let (calibration, old_calibration) =
-            run_bench(&arch, &executable, i, &[], "alco_calibration", allow_aslr);
+            run_bench(&arch, &executable, i, Params::init_mode(), "alco_calibration", allow_aslr);
 
         dbg!(&calibration.instruction_reads);
         dbg!(&calibration.summarize());
 
         for a in 5..20 {
-            let (stats, old_stats) = run_bench(&arch, &executable, i, &[a], name, allow_aslr  );
+            let params = param_builder.lower_bound();
+
+            let (stats, old_stats) = run_bench(&arch, &executable, i, params, name, allow_aslr  );
 
             let instruction_delta = stats.instruction_reads - calibration.instruction_reads;
 
