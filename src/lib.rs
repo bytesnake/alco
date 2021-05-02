@@ -238,7 +238,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params), ParamBuilder<'a>)]) 
         println!("{}", name);
 
         let (calibration, old_calibration) =
-            run_bench(&arch, &executable, i, Params::init_mode(), "alco_calibration", allow_aslr);
+            run_bench(&arch, &executable, i, param_builder.lower_bound(), "alco_calibration", allow_aslr);
 
         dbg!(&calibration.instruction_reads);
         dbg!(&calibration.summarize());

@@ -132,7 +132,9 @@ impl<'a> ParamBuilder<'a> {
             (a.to_string(), b.lower_bound())
         }).collect();
 
-        Params::Args(res)
+        Params {
+            args: res
+        }
     }
 }
 
@@ -171,54 +173,34 @@ impl Param {
     }
 }
 
-pub enum Params {
-    Init,
-    Args(HashMap<String, Param>),
+pub struct Params {
+    args: HashMap<String, Param>
 }
 
 impl Params {
-    pub fn init_mode() -> Self {
-        Params::Init
-    }
-
     pub fn from_string(params: String) -> Result<Self> {
-        if params == "init" {
-            return Ok(Params::Init);
-        } 
-
-        params.split(" ")
+        let parsed_params = params.split(" ")
             .map(|x| {
                 Param::from_str(x)
             })
-            .collect::<Result<HashMap<String, Param>>>()
-            .map(|x| Params::Args(x))
-    }
+            .collect::<Result<HashMap<String, Param>>>()?;
 
-    pub fn is_init_mode(&self) -> bool {
-        matches!(self, Params::Init)
+        Ok(Params {
+            args: parsed_params,
+        })
     }
 
     pub fn to_string(self) -> Vec<String> {
-        match self {
-            Params::Init => vec!["init".into()],
-            Params::Args(args) => {
-                args.into_iter().map(|(name, val)| {
-                    format!("{}§{}", name, val.to_string())
-                })
-                .collect::<Vec<_>>()
-            }
-        }
+        self.args.into_iter().map(|(name, val)| {
+                format!("{}§{}", name, val.to_string())
+            })
+            .collect::<Vec<_>>()
     }
 
     pub fn get_usize(&self, name: &str) -> Option<usize> {
-        match self {
-            Params::Init => Some(0),
-            Params::Args(args) => {
-                match args.get(name) {
-                    Some(Param::Usize(x)) => Some(*x),
-                    _ => None
-                }
-            }
+        match self.args.get(name) {
+            Some(Param::Usize(x)) => Some(*x),
+            _ => None
         }
     }
 }
