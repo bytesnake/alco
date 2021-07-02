@@ -89,7 +89,7 @@ impl ParamType {
 }
 
 pub struct ParamBuilder<'a> {
-    map: HashMap<&'a str, ParamType>,
+    map: HashMap<&'a str, (usize, ParamType)>,
 }
 
 impl<'a> ParamBuilder<'a> {
@@ -106,7 +106,7 @@ impl<'a> ParamBuilder<'a> {
 
         ParamType::from_range(range)
             .map(|param| {
-                self.map.insert(name, param);
+                self.map.insert(name, (20, param));
 
                 ()
             })
@@ -121,7 +121,7 @@ impl<'a> ParamBuilder<'a> {
 
         ParamType::from_items(items)
             .map(|param| {
-                self.map.insert(name, param);
+                self.map.insert(name, (20, param));
 
                 ()
             })
@@ -129,12 +129,20 @@ impl<'a> ParamBuilder<'a> {
 
     pub fn lower_bound(&self) -> Params {
         let res = self.map.iter().map(|(a, b)| {
-            (a.to_string(), b.lower_bound())
+            (a.to_string(), b.1.lower_bound())
         }).collect();
 
         Params {
             args: res
         }
+    }
+
+    pub fn params(&self) -> Vec<&str> {
+        self.map.keys().into_iter().cloned().collect()
+    }
+
+    pub fn next_step(&self, prev: Params, name: &str) -> Params {
+        prev
     }
 }
 

@@ -65,7 +65,7 @@ fn run_bench<'a>(
     arch: &str,
     executable: &str,
     i: usize,
-    params: Params,
+    params: &Params,
     name: &str,
     allow_aslr: bool,
 ) -> (CachegrindStats, Option<CachegrindStats>) {
@@ -238,15 +238,27 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params), ParamBuilder<'a>)]) 
         println!("{}", name);
 
         let (calibration, old_calibration) =
-            run_bench(&arch, &executable, i, param_builder.lower_bound(), "alco_calibration", allow_aslr);
+            run_bench(&arch, &executable, i, &param_builder.lower_bound(), "alco_calibration", allow_aslr);
 
         dbg!(&calibration.instruction_reads);
         dbg!(&calibration.summarize());
 
+        for param in param_builder.params() {
+            let mut params = param_builder.lower_bound();
+
+            for _ in 0..4 {
+                params = param_builder.next_step(params, param);
+        
+                let (stats, old_stats) = run_bench(&arch, &executable, i, &params, name, allow_aslr  );
+
+                let instruction_delta = stats.instruction_reads - calibration.instruction_reads;
+            }
+        }
+
         for a in 5..20 {
             let params = param_builder.lower_bound();
 
-            let (stats, old_stats) = run_bench(&arch, &executable, i, params, name, allow_aslr  );
+            let (stats, old_stats) = run_bench(&arch, &executable, i, &params, name, allow_aslr  );
 
             let instruction_delta = stats.instruction_reads - calibration.instruction_reads;
 
