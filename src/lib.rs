@@ -1,7 +1,7 @@
 mod params;
 mod error;
 
-pub use params::{ParamBuilder, Params};
+pub use params::{ParamBuilder, ParamSamples};
 
 use std::{
     collections::HashMap,
@@ -65,7 +65,7 @@ fn run_bench<'a>(
     arch: &str,
     executable: &str,
     i: usize,
-    params: &Params,
+    params: &ParamSamples,
     name: &str,
     allow_aslr: bool,
 ) -> (CachegrindStats, Option<CachegrindStats>) {
@@ -209,7 +209,7 @@ struct CachegrindSummary {
 
 /// Custom-test-framework runner. Should not be called directly.
 #[doc(hidden)]
-pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params), ParamBuilder<'a>)]) {
+pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'a>)]) {
     let mut args_iter = args();
     let executable = args_iter.next().unwrap();
 
@@ -219,7 +219,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params), ParamBuilder<'a>)]) 
         let index: usize = args_iter.next().unwrap().parse().unwrap();
         let args: String = args_iter.collect::<Vec<_>>().join(" ");
 
-        let params = Params::from_string(args).unwrap();
+        let params = ParamSamples::from_string(args).unwrap();
         (benches[index].1)(params);
 
         return;
@@ -232,7 +232,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params), ParamBuilder<'a>)]) 
 
     let arch = get_arch();
 
-    let allow_aslr = std::env::var_os("IAI_ALLOW_ASLR").is_some();
+    let allow_aslr = true; //std::env::var_os("IAI_ALLOW_ASLR").is_some();
 
     for (i, (name, _func, param_builder)) in benches.iter().enumerate() {
         println!("{}", name);
@@ -243,6 +243,8 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params), ParamBuilder<'a>)]) 
         dbg!(&calibration.instruction_reads);
         dbg!(&calibration.summarize());
 
+        // fit an unimodal polynomial to each term and increase such that the change in
+        // instructions is significant
         for param in param_builder.params() {
             let mut params = param_builder.lower_bound();
 
@@ -254,6 +256,11 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(Params), ParamBuilder<'a>)]) 
                 let instruction_delta = stats.instruction_reads - calibration.instruction_reads;
             }
         }
+
+        // sample with combinations of sample points estimated in previous step. The sample points
+        // are randomly permuted and the estimated instruction counter saved into a dataset.
+
+        // estimate an additive model with beam-search and limited interactions between terms
 
         for a in 5..20 {
             let params = param_builder.lower_bound();

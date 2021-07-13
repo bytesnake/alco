@@ -1,10 +1,10 @@
 use std::ops::Range;
 use std::any::{Any, type_name};
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::any::TypeId;
 
 use crate::error::{Result, Error};
+use super::samples::{Sample, Samples};
 
 pub enum ParamSet<T> {
     Range(Range<T>),
@@ -79,11 +79,11 @@ impl ParamType {
         }
     }
 
-    pub fn lower_bound(&self) -> Param {
+    pub fn lower_bound(&self) -> Sample {
         match self {
-            ParamType::Usize(u) => Param::Usize(u.lower_bound()),
-            ParamType::Float(f) => Param::Float(f.lower_bound()),
-            ParamType::Str(s) => Param::Str(s.first().unwrap().clone()),
+            ParamType::Usize(u) => Sample::Usize(u.lower_bound()),
+            ParamType::Float(f) => Sample::Float(f.lower_bound()),
+            ParamType::Str(s) => Sample::Str(s.first().unwrap().clone()),
         }
     }
 }
@@ -127,21 +127,19 @@ impl<'a> ParamBuilder<'a> {
             })
     }
 
-    pub fn lower_bound(&self) -> Params {
+    pub fn lower_bound(&self) -> Samples {
         let res = self.map.iter().map(|(a, b)| {
             (a.to_string(), b.1.lower_bound())
         }).collect();
 
-        Params {
-            args: res
-        }
+        Samples::new(res)
     }
 
     pub fn params(&self) -> Vec<&str> {
         self.map.keys().into_iter().cloned().collect()
     }
 
-    pub fn next_step(&self, prev: Params, name: &str) -> Params {
+    pub fn next_step(&self, prev: Samples, name: &str) -> Samples {
         prev
     }
 }
