@@ -36,11 +36,11 @@ impl Sample {
     }
 }
 
-pub struct Samples {
-    args: HashMap<String, Sample>
+pub struct Samples<'a> {
+    args: HashMap<String, (Sample, &'a ParamType)>
 }
 
-impl Samples {
+impl<'a> Samples<'a> {
     pub fn new(args: HashMap<String, Sample>) -> Self {
         Samples { args
         }
@@ -70,5 +70,9 @@ impl Samples {
             Some(Sample::Usize(x)) => Some(*x),
             _ => None
         }
+    }
+
+    pub fn samples(self) -> HashMap<String, (Sample, &'a ParamType)> {
+        self.args
     }
 }

@@ -86,6 +86,12 @@ impl ParamType {
             ParamType::Str(s) => Sample::Str(s.first().unwrap().clone()),
         }
     }
+
+    pub fn minimal_step_for(&self, value: Sample) -> Sample {
+        //match self {
+            //ParamType::Usize(ParamSet::Range(a, b)) => 
+        value
+    }
 }
 
 pub struct ParamBuilder<'a> {
@@ -140,6 +146,17 @@ impl<'a> ParamBuilder<'a> {
     }
 
     pub fn next_step(&self, prev: Samples, name: &str) -> Samples {
-        prev
+        let args = prev.samples().into_iter()
+            .map(|(key, value)| {
+                let (_, param) = self.map.get(&*key).unwrap();
+
+                (
+                    key, 
+                    param.minimal_step_for(value)
+                )
+            })
+            .collect();
+
+        Samples::new(args)
     }
 }

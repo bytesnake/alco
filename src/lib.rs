@@ -245,33 +245,81 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
 
         // fit an unimodal polynomial to each term and increase such that the change in
         // instructions is significant
+        //
+        let mut samples = Vec::new();
+        let mut dataset = Vec::new();
         for param in param_builder.params() {
-            let mut params = param_builder.lower_bound();
+            let length = match param {
+                ParamType::Usize(ParamSet::Items(x)) => Some(x.len()),
+                ParamType::Float(ParamSet::Items(x)) => Some(x.len()),
+                ParamType::String(x) => Some(x.len()),
+                _ => None
+            };
 
-            for _ in 0..4 {
-                params = param_builder.next_step(params, param);
+            // if the parameter is a item set, then just collect all indices as samples
+            if let Some(length) = length {
+                samples.insert((param, (0..length).collect()));
+                continue;
+            }
+
+            let mut params = param_builder.lower_bound();
+            let mut results = vec![];
+            let mut current_step = 0;
+
+            for _ in 0..self.num_seeding_steps {
+                params = param_builder.next(params, param, current_step);
         
+                // pass params and calculate stats
                 let (stats, old_stats) = run_bench(&arch, &executable, i, &params, name, allow_aslr  );
 
                 let instruction_delta = stats.instruction_reads - calibration.instruction_reads;
+
+                results.push((current_step, instruction_delta));
+                dataset.push(params.clone(), instruction_delta);
+
+                current_step += match model::unimodal(&results) {
+                    0 => break,
+                    x => x,
+                };
             }
+
+            samples.push(results);
         }
 
         // sample with combinations of sample points estimated in previous step. The sample points
         // are randomly permuted and the estimated instruction counter saved into a dataset.
+        for _ in 0..self.num_steps {
+            let indices = self.samples.mut_iter().map(|x| {
+                if x.len() == 0 {
+                    return None;
+                }
 
-        // estimate an additive model with beam-search and limited interactions between terms
+                let idx = rand(0, x.len());
+                Some(x.remove(idx))
+            }).collect();
 
-        for a in 5..20 {
-            let params = param_builder.lower_bound();
+            // break loop if we hit boundary of a single index
+            let indices = match indices {
+                Some(x) => x,
+                None => break,
+            };
 
+            let params = param_builder.from_indices(indices);
+
+            // pass params and calculate stats
             let (stats, old_stats) = run_bench(&arch, &executable, i, &params, name, allow_aslr  );
 
             let instruction_delta = stats.instruction_reads - calibration.instruction_reads;
 
-            println!("{}, {}", a, instruction_delta);
+            // push current instruction to dataset
+            dataset.push((params, instruction_delta));
         }
-        //dbg!(stats.summarize());
+
+        // estimate an additive model with beam-search and limited interactions between terms
+        let estimation = model::fit_greedy_additive(dataset, beam_size, max_interactions);
+
+        // print complexity estimation (may write to file in future)
+        dbg!(&estimation);
     }
 }
 
