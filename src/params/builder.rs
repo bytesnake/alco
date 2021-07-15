@@ -6,96 +6,61 @@ use std::any::TypeId;
 use crate::error::{Result, Error};
 use super::samples::{Sample, Samples};
 
-pub enum ParamSet<T> {
-    Range(Range<T>),
-    Items(Vec<T>),
-}
-
-impl<T: Clone> ParamSet<T> {
-    pub fn lower_bound(&self) -> T {
-        match self {
-            ParamSet::Range(range) => range.start.clone(),
-            ParamSet::Items(items) => items[0].clone(),
-        }
+pub trait ParamType {
+    fn num_items(&self) -> Option<usize> {
+        None
     }
+
+    fn for_step(&self, step: usize) -> Option<Sample>;
 }
 
-pub enum ParamType {
-    Usize(ParamSet<usize>),
-    Float(ParamSet<f32>),
-    Str(Vec<String>),
-}
+pub struct UsizeRange(Range<usize>, usize);
 
-impl ParamType {
-    pub fn from_range<T: Any>(range: Range<T>) -> Result<ParamType> {
-        let type_id = TypeId::of::<T>();
+impl ParamType for UsizeRange{
+    fn for_step(&self, step: usize) -> Option<Sample> {
+        let tmp = self.0.start + step * self.1;
 
-        if type_id == TypeId::of::<usize>() {
-            let (a, b) = (range.start, range.end);
-            let (a, b): (&usize, &usize) = (
-                Any::downcast_ref(&a).unwrap(),
-                Any::downcast_ref(&b).unwrap(),
-            );
-
-            return Ok(ParamType::Usize(ParamSet::Range(*a..*b)));
-        } else if type_id == TypeId::of::<f32>() {
-            let (a, b) = (range.start, range.end);
-            let (a, b): (&f32, &f32) = (
-                Any::downcast_ref(&a).unwrap(),
-                Any::downcast_ref(&b).unwrap(),
-            );
-
-            return Ok(ParamType::Float(ParamSet::Range(*a..*b)));
-        } else if type_id == TypeId::of::<String>() {
-            return Err(Error::StringRange);
+        if tmp >= self.0.end {
+            return None;
         } else {
-            return Err(Error::InvalidType(type_name::<T>().into()));
+            return Some(Sample::Usize(tmp));
         }
     }
+}
 
-    pub fn from_items<'a, T: Any>(items: &'a [T]) -> Result<ParamType> {
-        let type_id = TypeId::of::<T>();
 
-        if type_id == TypeId::of::<usize>() {
-            let items = items.into_iter()
-                .map(|x| *Any::downcast_ref(x).unwrap())
-                .collect();
+pub struct FloatRange(Range<f32>, f32);
 
-            return Ok(ParamType::Usize(ParamSet::Items(items)));
-        } else if type_id == TypeId::of::<f32>() {
-            let items = items.into_iter()
-                .map(|x| *Any::downcast_ref(x).unwrap())
-                .collect();
+impl ParamType for FloatRange {
+    fn for_step(&self, step: usize) -> Option<Sample> {
+        let tmp = self.0.start + (step as f32) * self.1;
 
-            return Ok(ParamType::Float(ParamSet::Items(items)));
-        } else if type_id == TypeId::of::<String>() {
-            let items = items.into_iter()
-                .map(|x| Any::downcast_ref::<String>(x).unwrap().to_string())
-                .collect();
-
-            return Ok(ParamType::Str(items));
+        if tmp >= self.0.end {
+            return None;
         } else {
-            return Err(Error::InvalidType(type_name::<T>().into()));
+            return Some(Sample::Float(tmp));
         }
     }
+}
 
-    pub fn lower_bound(&self) -> Sample {
-        match self {
-            ParamType::Usize(u) => Sample::Usize(u.lower_bound()),
-            ParamType::Float(f) => Sample::Float(f.lower_bound()),
-            ParamType::Str(s) => Sample::Str(s.first().unwrap().clone()),
-        }
+pub struct Items(Vec<Sample>);
+
+impl ParamType for Items {
+    fn num_items(&self) -> Option<usize> {
+        Some(self.0.len())
     }
 
-    pub fn minimal_step_for(&self, value: Sample) -> Sample {
-        //match self {
-            //ParamType::Usize(ParamSet::Range(a, b)) => 
-        value
+    fn for_step(&self, step: usize) -> Option<Sample> {
+        if step >= self.0.len() {
+            return None
+        } else {
+            self.0[step].clone()
+        }
     }
 }
 
 pub struct ParamBuilder<'a> {
-    map: HashMap<&'a str, (usize, ParamType)>,
+    map: HashMap<&'a str, Box<ParamType>>,
 }
 
 impl<'a> ParamBuilder<'a> {
@@ -105,17 +70,24 @@ impl<'a> ParamBuilder<'a> {
         }
     }
 
-    pub fn add_range<T: Any>(&mut self, name: &'a str, range: Range<T>) -> Result<()> {
+    pub fn add_usize_range(&mut self, name: &'a str, range: Range<usize>) -> Result<()> {
         if self.map.contains_key(name) {
             return Err(Error::ArgumentAlreadyExists(name.to_string()));
         }
 
-        ParamType::from_range(range)
-            .map(|param| {
-                self.map.insert(name, (20, param));
+        self.map.insert(name, UsizeRange(range, 1));
 
-                ()
-            })
+        Ok(())
+    }
+
+    pub fn add_float_range(&mut self, name: &'a str, range: Range<f32>, min_val: f32) -> Result<()> {
+        if self.map.contains_key(name) {
+            return Err(Error::ArgumentAlreadyExists(name.to_string()));
+        }
+
+        self.map.insert(name, FloatRange(range, min_val));
+
+        Ok(())
     }
 
     pub fn add_items<T: Any, S: AsRef<[T]>>(&mut self, name: &'a str, items: S) -> Result<()> {
@@ -125,38 +97,30 @@ impl<'a> ParamBuilder<'a> {
             return Err(Error::ArgumentAlreadyExists(name.to_string()));
         }
 
-        ParamType::from_items(items)
-            .map(|param| {
-                self.map.insert(name, (20, param));
+        self.map.insert(name, Items(items.clone()));
 
-                ()
-            })
+        Ok(())
     }
 
-    pub fn lower_bound(&self) -> Samples {
-        let res = self.map.iter().map(|(a, b)| {
-            (a.to_string(), b.1.lower_bound())
+    pub fn indices(&self, indices: &[usize]) -> Sample {
+        let res = self.map.iter().zip(indices.iter()).map(|(m, idx)| {
+            (m.0, m.1.0.for_step(idx))
         }).collect();
 
         Samples::new(res)
+    }
+
+    pub fn lower_bound(&self) -> Samples {
+        let zeros = vec![0; self.map.len()];
+
+        Self::indices(&zeros)
     }
 
     pub fn params(&self) -> Vec<&str> {
         self.map.keys().into_iter().cloned().collect()
     }
 
-    pub fn next_step(&self, prev: Samples, name: &str) -> Samples {
-        let args = prev.samples().into_iter()
-            .map(|(key, value)| {
-                let (_, param) = self.map.get(&*key).unwrap();
-
-                (
-                    key, 
-                    param.minimal_step_for(value)
-                )
-            })
-            .collect();
-
-        Samples::new(args)
+    pub fn update_step(&self, prev: Samples, name: &str, step: usize) -> Samples {
+        prev
     }
 }

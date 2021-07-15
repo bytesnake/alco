@@ -234,6 +234,8 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
 
     let allow_aslr = true; //std::env::var_os("IAI_ALLOW_ASLR").is_some();
 
+    let (num_seeding_steps, num_steps) = (6, 30);
+
     for (i, (name, _func, param_builder)) in benches.iter().enumerate() {
         println!("{}", name);
 
@@ -249,15 +251,9 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
         let mut samples = Vec::new();
         let mut dataset = Vec::new();
         for param in param_builder.params() {
-            let length = match param {
-                ParamType::Usize(ParamSet::Items(x)) => Some(x.len()),
-                ParamType::Float(ParamSet::Items(x)) => Some(x.len()),
-                ParamType::String(x) => Some(x.len()),
-                _ => None
-            };
-
-            // if the parameter is a item set, then just collect all indices as samples
-            if let Some(length) = length {
+            // if the parameter is a item set, then just collect all indices as samples.
+            // we have to try out every item anyways.
+            if let Some(length) = param.num_items() {
                 samples.insert((param, (0..length).collect()));
                 continue;
             }
@@ -266,8 +262,8 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
             let mut results = vec![];
             let mut current_step = 0;
 
-            for _ in 0..self.num_seeding_steps {
-                params = param_builder.next(params, param, current_step);
+            for _ in 0..num_seeding_steps {
+                params = param_builder.update_step(params, param, current_step);
         
                 // pass params and calculate stats
                 let (stats, old_stats) = run_bench(&arch, &executable, i, &params, name, allow_aslr  );
@@ -277,7 +273,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
                 results.push((current_step, instruction_delta));
                 dataset.push(params.clone(), instruction_delta);
 
-                current_step += match model::unimodal(&results) {
+                current_step += match model::estimate_stepsize(&results, min_change) {
                     0 => break,
                     x => x,
                 };
@@ -286,9 +282,10 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
             samples.push(results);
         }
 
+        /*
         // sample with combinations of sample points estimated in previous step. The sample points
         // are randomly permuted and the estimated instruction counter saved into a dataset.
-        for _ in 0..self.num_steps {
+        for _ in 0..num_steps {
             let indices = self.samples.mut_iter().map(|x| {
                 if x.len() == 0 {
                     return None;
@@ -319,7 +316,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
         let estimation = model::fit_greedy_additive(dataset, beam_size, max_interactions);
 
         // print complexity estimation (may write to file in future)
-        dbg!(&estimation);
+        dbg!(&estimation);*/
     }
 }
 
