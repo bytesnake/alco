@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use crate::error::{Result, Error};
 
+#[derive(Clone)]
 pub enum Sample {
     Float(f32),
     Usize(usize),
@@ -36,11 +37,12 @@ impl Sample {
     }
 }
 
-pub struct Samples<'a> {
-    args: HashMap<String, (Sample, &'a ParamType)>
+#[derive(Clone)]
+pub struct Samples {
+    args: HashMap<String, Sample>
 }
 
-impl<'a> Samples<'a> {
+impl Samples {
     pub fn new(args: HashMap<String, Sample>) -> Self {
         Samples { args
         }
@@ -72,7 +74,7 @@ impl<'a> Samples<'a> {
         }
     }
 
-    pub fn samples(self) -> HashMap<String, (Sample, &'a ParamType)> {
+    pub fn samples(self) -> HashMap<String, Sample> {
         self.args
     }
 }

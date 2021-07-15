@@ -1,5 +1,6 @@
 mod params;
 mod error;
+mod model;
 
 pub use params::{ParamBuilder, ParamSamples};
 
@@ -11,6 +12,9 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
+
+use itertools::Itertools;
+use rand::prelude::IteratorRandom;
 
 pub fn black_box<T>(dummy: T) -> T { 
     unsafe {
@@ -234,7 +238,11 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
 
     let allow_aslr = true; //std::env::var_os("IAI_ALLOW_ASLR").is_some();
 
-    let (num_seeding_steps, num_steps) = (6, 30);
+    // sampling parameters
+    let (num_seeding_steps, num_steps, min_change) = (6, 30, 50);
+
+    // model estimation parameters
+    let (beam_size, max_interactions) = (4, 3);
 
     for (i, (name, _func, param_builder)) in benches.iter().enumerate() {
         println!("{}", name);
@@ -248,13 +256,13 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
         // fit an unimodal polynomial to each term and increase such that the change in
         // instructions is significant
         //
-        let mut samples = Vec::new();
+        let mut samples: Vec<(&str, Vec<usize>)> = Vec::new();
         let mut dataset = Vec::new();
-        for param in param_builder.params() {
+        for (param_name, param) in param_builder.params() {
             // if the parameter is a item set, then just collect all indices as samples.
             // we have to try out every item anyways.
             if let Some(length) = param.num_items() {
-                samples.insert((param, (0..length).collect()));
+                samples.push((param_name, (0..length).collect()));
                 continue;
             }
 
@@ -263,7 +271,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
             let mut current_step = 0;
 
             for _ in 0..num_seeding_steps {
-                params = param_builder.update_step(params, param, current_step);
+                params = param_builder.update_step(params, param_name, current_step);
         
                 // pass params and calculate stats
                 let (stats, old_stats) = run_bench(&arch, &executable, i, &params, name, allow_aslr  );
@@ -271,7 +279,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
                 let instruction_delta = stats.instruction_reads - calibration.instruction_reads;
 
                 results.push((current_step, instruction_delta));
-                dataset.push(params.clone(), instruction_delta);
+                dataset.push((params.clone(), instruction_delta));
 
                 current_step += match model::estimate_stepsize(&results, min_change) {
                     0 => break,
@@ -279,29 +287,21 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
                 };
             }
 
-            samples.push(results);
+            let results = results.into_iter().map(|x| x.0).collect();
+            samples.push((param_name, results));
         }
 
-        /*
         // sample with combinations of sample points estimated in previous step. The sample points
         // are randomly permuted and the estimated instruction counter saved into a dataset.
-        for _ in 0..num_steps {
-            let indices = self.samples.mut_iter().map(|x| {
-                if x.len() == 0 {
-                    return None;
-                }
+        let mut rng = &mut rand::thread_rng();
 
-                let idx = rand(0, x.len());
-                Some(x.remove(idx))
-            }).collect();
+        let combs = samples.iter().map(|x| 0..x.1.len())
+            .multi_cartesian_product()
+            .choose_multiple(&mut rng, num_steps);
 
-            // break loop if we hit boundary of a single index
-            let indices = match indices {
-                Some(x) => x,
-                None => break,
-            };
-
-            let params = param_builder.from_indices(indices);
+        for comb in combs {
+            let indices: Vec<(&str, usize)> = samples.iter().zip(comb).map(|(a, b)| (a.0, a.1[b])).collect();
+            let params = param_builder.from_indices(indices).unwrap();
 
             // pass params and calculate stats
             let (stats, old_stats) = run_bench(&arch, &executable, i, &params, name, allow_aslr  );
@@ -316,7 +316,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
         let estimation = model::fit_greedy_additive(dataset, beam_size, max_interactions);
 
         // print complexity estimation (may write to file in future)
-        dbg!(&estimation);*/
+        dbg!(&estimation);
     }
 }
 

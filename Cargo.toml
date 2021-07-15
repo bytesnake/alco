@@ -10,3 +10,5 @@ description = "Automatic algorithmic complexity estimation"
 
 [dependencies]
 thiserror = "1"
+itertools = "0.10.1"
+rand = "0.8"

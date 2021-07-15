@@ -1,7 +1,6 @@
 use std::ops::Range;
-use std::any::{Any, type_name};
+use std::any::Any;
 use std::collections::HashMap;
-use std::any::TypeId;
 
 use crate::error::{Result, Error};
 use super::samples::{Sample, Samples};
@@ -54,13 +53,13 @@ impl ParamType for Items {
         if step >= self.0.len() {
             return None
         } else {
-            self.0[step].clone()
+            Some(self.0[step].clone())
         }
     }
 }
 
 pub struct ParamBuilder<'a> {
-    map: HashMap<&'a str, Box<ParamType>>,
+    map: HashMap<&'a str, Box<dyn ParamType>>,
 }
 
 impl<'a> ParamBuilder<'a> {
@@ -75,7 +74,7 @@ impl<'a> ParamBuilder<'a> {
             return Err(Error::ArgumentAlreadyExists(name.to_string()));
         }
 
-        self.map.insert(name, UsizeRange(range, 1));
+        self.map.insert(name, Box::new(UsizeRange(range, 1)));
 
         Ok(())
     }
@@ -85,7 +84,7 @@ impl<'a> ParamBuilder<'a> {
             return Err(Error::ArgumentAlreadyExists(name.to_string()));
         }
 
-        self.map.insert(name, FloatRange(range, min_val));
+        self.map.insert(name, Box::new(FloatRange(range, min_val)));
 
         Ok(())
     }
@@ -97,30 +96,57 @@ impl<'a> ParamBuilder<'a> {
             return Err(Error::ArgumentAlreadyExists(name.to_string()));
         }
 
-        self.map.insert(name, Items(items.clone()));
+        let items = items.iter().map(|x| {
+            let x = x as &dyn Any;
+            if let Some(x) = x.downcast_ref::<usize>() {
+                Sample::Usize(*x)
+            } else if let Some(x) = x.downcast_ref::<f32>() {
+                Sample::Float(*x)
+            } else if let Some(x) = x.downcast_ref::<f64>() {
+                Sample::Float(*x as f32)
+            } else if let Some(x) = x.downcast_ref::<String>() {
+                Sample::Str(x.to_string())
+            } else {
+                panic!("Not support type");
+            }
+        }).collect();
+
+        self.map.insert(name, Box::new(Items(items)));
 
         Ok(())
     }
 
-    pub fn indices(&self, indices: &[usize]) -> Sample {
-        let res = self.map.iter().zip(indices.iter()).map(|(m, idx)| {
-            (m.0, m.1.0.for_step(idx))
-        }).collect();
+    pub fn from_indices(&self, indices: Vec<(&str, usize)>) -> Option<Samples> {
+        let res = indices.into_iter().map(|(name, val)| {
+            let t = self.map.get(name).unwrap();
+            t.for_step(val).map(|x| (name.to_string(), x))
+        }).collect::<Option<HashMap<_, _>>>();
 
-        Samples::new(res)
+        res.map(Samples::new)
     }
 
     pub fn lower_bound(&self) -> Samples {
-        let zeros = vec![0; self.map.len()];
+        let zeros = self.map.keys().map(|key| (*key, 0)).collect();
 
-        Self::indices(&zeros)
+        self.from_indices(zeros).unwrap()
     }
 
-    pub fn params(&self) -> Vec<&str> {
-        self.map.keys().into_iter().cloned().collect()
+    pub fn params(&self) -> &HashMap<&'a str, Box<dyn ParamType>> {
+        &self.map
     }
 
     pub fn update_step(&self, prev: Samples, name: &str, step: usize) -> Samples {
-        prev
+        let mut samples = prev.samples();
+
+        // create new value with given step
+        let new_val = {
+            let t = self.map.get(name).unwrap();
+            t.for_step(step).unwrap()
+        };
+
+        // insert into map and return a new sample set
+        samples.insert(name.to_string(), new_val);
+
+        Samples::new(samples)
     }
 }
