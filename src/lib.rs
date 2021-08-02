@@ -99,7 +99,8 @@ fn run_bench<'a>(
         .arg(format!("--cachegrind-out-file={}", output_file.display()))
         .arg(executable)
         .arg("--alco-run")
-        .arg(i.to_string());
+        .arg(i.to_string())
+        .arg(params.is_setup().to_string());
 
     for arg in params.to_string() {
         status = status.arg(arg);
@@ -221,9 +222,10 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
         // In this branch, we're running under cachegrind, so execute the benchmark as quic  kly as
         // possible and exit
         let index: usize = args_iter.next().unwrap().parse().unwrap();
+        let is_setup: bool = args_iter.next().unwrap().parse().unwrap();
         let args: String = args_iter.collect::<Vec<_>>().join(" ");
 
-        let params = ParamSamples::from_string(args).unwrap();
+        let params = ParamSamples::from_string(is_setup, args).unwrap();
         (benches[index].1)(params);
 
         return;
@@ -239,7 +241,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
     let allow_aslr = true; //std::env::var_os("IAI_ALLOW_ASLR").is_some();
 
     // sampling parameters
-    let (num_seeding_steps, num_steps, min_change) = (6, 30, 50);
+    let (num_seeding_steps, num_steps, min_change) = (10, 30, 50);
 
     // model estimation parameters
     let (beam_size, max_interactions) = (4, 3);
@@ -248,7 +250,7 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
         println!("{}", name);
 
         let (calibration, old_calibration) =
-            run_bench(&arch, &executable, i, &param_builder.lower_bound(), "alco_calibration", allow_aslr);
+            run_bench(&arch, &executable, i, &param_builder.lower_bound().setup_run(true), "alco_calibration", allow_aslr);
 
         dbg!(&calibration.instruction_reads);
         dbg!(&calibration.summarize());
@@ -276,7 +278,9 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
                 // pass params and calculate stats
                 let (stats, old_stats) = run_bench(&arch, &executable, i, &params, name, allow_aslr  );
 
-                let instruction_delta = stats.instruction_reads - calibration.instruction_reads;
+                // cap instruction delta if negative
+                let instruction_delta = (stats.instruction_reads as i64) - (calibration.instruction_reads as i64);
+                let instruction_delta = i64::max(instruction_delta, 0) as u64;
 
                 results.push((current_step, instruction_delta));
                 dataset.push((params.clone(), instruction_delta));
@@ -298,6 +302,8 @@ pub fn runner<'a>(benches: &'a [&(&'static str, fn(ParamSamples), ParamBuilder<'
         let combs = samples.iter().map(|x| 0..x.1.len())
             .multi_cartesian_product()
             .choose_multiple(&mut rng, num_steps);
+
+        dbg!(&combs);
 
         for comb in combs {
             let indices: Vec<(&str, usize)> = samples.iter().zip(comb).map(|(a, b)| (a.0, a.1[b])).collect();

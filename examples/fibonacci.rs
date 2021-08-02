@@ -3,6 +3,10 @@ use alco::{black_box, runner, ParamBuilder, ParamSamples};
 fn fibonacci(params: ParamSamples) {
     let n = params.get_usize("n").unwrap();
 
+    if params.is_setup() {
+        return;
+    }
+
     fn f(n: usize) -> usize {
         match n {
             0 => 1,
@@ -17,7 +21,7 @@ fn fibonacci(params: ParamSamples) {
 fn main() {
     let mut params = ParamBuilder::new();
 
-    params.add_range("n", 0..100usize).unwrap();
+    params.add_usize_range("n", 3..100).unwrap();
     //params.add_combination("n, k, l").unwrap();
     //params.num_interactions(1).unwrap();
 

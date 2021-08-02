@@ -39,16 +39,19 @@ impl Sample {
 
 #[derive(Clone)]
 pub struct Samples {
+    setup_run: bool,
     args: HashMap<String, Sample>
 }
 
 impl Samples {
     pub fn new(args: HashMap<String, Sample>) -> Self {
-        Samples { args
+        Samples { 
+            setup_run: false,
+            args
         }
     }
 
-    pub fn from_string(params: String) -> Result<Self> {
+    pub fn from_string(setup_run: bool, params: String) -> Result<Self> {
         let parsed_params = params.split(" ")
             .map(|x| {
                 Sample::from_str(x)
@@ -56,6 +59,7 @@ impl Samples {
             .collect::<Result<HashMap<String, Sample>>>()?;
 
         Ok(Samples {
+            setup_run,
             args: parsed_params,
         })
     }
@@ -76,5 +80,15 @@ impl Samples {
 
     pub fn samples(self) -> HashMap<String, Sample> {
         self.args
+    }
+
+    pub fn is_setup(&self) -> bool {
+        self.setup_run
+    }
+
+    pub fn setup_run(mut self, setup_run: bool) -> Self {
+        self.setup_run = setup_run;
+
+        self
     }
 }
